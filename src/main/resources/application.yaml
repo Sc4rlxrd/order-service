@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    platform: postgres
+    url: jdbc:postgresql://localhost:5432/books
+    username: postgres
+    password: root
+    driver-class-name: org.postgresql.Driver
+
+flyway:
+  enabled: true
+  locations: classpath:db/migration
+
+jpa:
+  hibernate:
+    ddl-auto: validate
+    deferred-datasource-initialization: true

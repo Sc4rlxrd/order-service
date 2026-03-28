@@ -1,0 +1,14 @@
+services:
+  db_book:
+    image: postgres:15-alpine
+    container_name: db_book
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: books
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_book_volume:/var/lib/postgresql/data
+volumes:
+  db_book_volume:
