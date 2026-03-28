@@ -16,6 +16,6 @@ public class CreateOrderDTO {
     @NotNull
     private UUID clientId;
 
-    @NotEmpty
+    @NotEmpty(message = "Order must have at least one item")
     private List<OrderItemDTO> items;
 }

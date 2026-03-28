@@ -17,14 +17,17 @@ public class OrderItem {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(nullable = false)
     private UUID bookId;
 
+    @Column(nullable = false)
     private int quantity;
 
+    @Column(nullable = false)
     private BigDecimal price;
 
-    @ManyToOne
-    @JoinColumn(name = "order_id")
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "order_id",nullable = false)
     private Order order;
 
 }
