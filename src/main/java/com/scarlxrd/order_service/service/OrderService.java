@@ -1,10 +1,11 @@
 package com.scarlxrd.order_service.service;
 
-import com.scarlxrd.order_service.dto.CreateOrderDTO;
-import com.scarlxrd.order_service.dto.OrderItemDTO;
-import com.scarlxrd.order_service.dto.OrderResponseDTO;
+import com.scarlxrd.order_service.config.client.PaymentClient;
+import com.scarlxrd.order_service.dto.*;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderItem;
+import com.scarlxrd.order_service.entity.OrderStatus;
+import com.scarlxrd.order_service.exception.BusinessException;
 import com.scarlxrd.order_service.mapper.OrderMapper;
 import com.scarlxrd.order_service.repository.OrderRepository;
 import org.springframework.stereotype.Service;
@@ -18,12 +19,13 @@ public class OrderService {
 
     private final OrderRepository repository;
     private final OrderMapper mapper;
+    private final PaymentClient paymentClient;
 
-    public OrderService(OrderRepository repository, OrderMapper mapper) {
+    public OrderService(OrderRepository repository, OrderMapper mapper, PaymentClient paymentClient) {
         this.repository = repository;
         this.mapper = mapper;
+        this.paymentClient = paymentClient;
     }
-
 
     @Transactional
     public OrderResponseDTO create(CreateOrderDTO dto) {
@@ -32,6 +34,10 @@ public class OrderService {
         order.setClientId(dto.getClientId());
 
         BigDecimal total = BigDecimal.ZERO;
+
+        if (dto.getItems() == null || dto.getItems().isEmpty()) {
+            throw new BusinessException("Order must have at least one item");
+        }
 
         for (OrderItemDTO itemDTO : dto.getItems()) {
 
@@ -44,14 +50,29 @@ public class OrderService {
 
             order.addItem(item);
 
-            total = total.add(price.multiply(BigDecimal.valueOf(itemDTO.getQuantity())));
+            total = total.add(
+                    price.multiply(BigDecimal.valueOf(itemDTO.getQuantity()))
+            );
         }
 
         order.setTotalAmount(total);
 
-        Order saved = repository.save(order);
+        Order savedOrder = repository.save(order);
 
-        return mapper.toResponse(saved);
+        PaymentRequestDTO paymentRequest = new PaymentRequestDTO();
+        paymentRequest.setOrderId(savedOrder.getId());
+        paymentRequest.setAmount(total);
+
+        PaymentResponseDTO paymentResponse =
+                paymentClient.processPayment(paymentRequest).join();
+
+        if ("SUCCESS".equals(paymentResponse.getStatus())) {
+            savedOrder.setStatus(OrderStatus.PAID);
+        } else {
+            savedOrder.setStatus(OrderStatus.CANCELLED);
+        }
+
+        return mapper.toResponse(repository.save(savedOrder));
     }
 
     private BigDecimal getBookPrice(UUID bookId) {
