@@ -1,7 +1,10 @@
+server:
+  port: 8082
+
 spring:
   datasource:
     platform: postgres
-    url: jdbc:postgresql://localhost:5432/books
+    url: jdbc:postgresql://localhost:5434/orders
     username: postgres
     password: root
     driver-class-name: org.postgresql.Driver
