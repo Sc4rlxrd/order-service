@@ -1,7 +1,10 @@
 package com.scarlxrd.order_service.service;
 
-import com.scarlxrd.order_service.config.client.PaymentClient;
-import com.scarlxrd.order_service.dto.*;
+import com.scarlxrd.order_service.config.rabbitmq.OrderPublisher;
+import com.scarlxrd.order_service.dto.CreateOrderDTO;
+import com.scarlxrd.order_service.dto.OrderCreatedEvent;
+import com.scarlxrd.order_service.dto.OrderItemDTO;
+import com.scarlxrd.order_service.dto.OrderResponseDTO;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderItem;
 import com.scarlxrd.order_service.entity.OrderStatus;
@@ -19,12 +22,13 @@ public class OrderService {
 
     private final OrderRepository repository;
     private final OrderMapper mapper;
-    private final PaymentClient paymentClient;
+    private final OrderPublisher orderPublisher;
 
-    public OrderService(OrderRepository repository, OrderMapper mapper, PaymentClient paymentClient) {
+    public OrderService(OrderRepository repository, OrderMapper mapper, OrderPublisher orderPublisher) {
         this.repository = repository;
         this.mapper = mapper;
-        this.paymentClient = paymentClient;
+
+        this.orderPublisher = orderPublisher;
     }
 
     @Transactional
@@ -56,23 +60,21 @@ public class OrderService {
         }
 
         order.setTotalAmount(total);
+        order.setStatus(OrderStatus.PENDING);
 
         Order savedOrder = repository.save(order);
+        savedOrder = repository.findByIdWithItems(savedOrder.getId()).orElseThrow();
 
-        PaymentRequestDTO paymentRequest = new PaymentRequestDTO();
-        paymentRequest.setOrderId(savedOrder.getId());
-        paymentRequest.setAmount(total);
 
-        PaymentResponseDTO paymentResponse =
-                paymentClient.processPayment(paymentRequest).join();
+        OrderCreatedEvent event = new OrderCreatedEvent(
+                savedOrder.getId(),
+                savedOrder.getTotalAmount(),
+                null
+        );
 
-        if ("SUCCESS".equals(paymentResponse.getStatus())) {
-            savedOrder.setStatus(OrderStatus.PAID);
-        } else {
-            savedOrder.setStatus(OrderStatus.CANCELLED);
-        }
+        orderPublisher.publishOrderCreated(event);
 
-        return mapper.toResponse(repository.save(savedOrder));
+        return mapper.toResponse(savedOrder);
     }
 
     private BigDecimal getBookPrice(UUID bookId) {
