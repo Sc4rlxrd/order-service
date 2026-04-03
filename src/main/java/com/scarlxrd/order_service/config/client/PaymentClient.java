@@ -20,33 +20,33 @@ public class PaymentClient {
 
     private final RestTemplate restTemplate;
 
-    @Value("${payment.url}")
-    private String paymentUrl;
-
-    @Retry(name = "paymentRetry")
-    @CircuitBreaker(name = "paymentCircuit", fallbackMethod = "fallback")
-    @TimeLimiter(name = "paymentTimeout")
-    public CompletableFuture<PaymentResponseDTO> processPayment(PaymentRequestDTO request) {
-
-        return CompletableFuture.supplyAsync(() -> {
-            log.info("Calling Payment Service...");
-            return restTemplate.postForObject(
-                    paymentUrl,
-                    request,
-                    PaymentResponseDTO.class
-            );
-        });
-    }
-
-    public CompletableFuture<PaymentResponseDTO> fallback(
-            PaymentRequestDTO request,
-            Throwable ex
-    ) {
-        log.error("Payment fallback triggered: {}", ex.getMessage());
-
-        PaymentResponseDTO response = new PaymentResponseDTO();
-        response.setStatus("FAILED");
-
-        return CompletableFuture.completedFuture(response);
-    }
+//    @Value("${payment.url}")
+//    private String paymentUrl;
+//
+//    @Retry(name = "paymentRetry")
+//    @CircuitBreaker(name = "paymentCircuit", fallbackMethod = "fallback")
+//    @TimeLimiter(name = "paymentTimeout")
+//    public CompletableFuture<PaymentResponseDTO> processPayment(PaymentRequestDTO request) {
+//
+//        return CompletableFuture.supplyAsync(() -> {
+//            log.info("Calling Payment Service...");
+//            return restTemplate.postForObject(
+//                    paymentUrl,
+//                    request,
+//                    PaymentResponseDTO.class
+//            );
+//        });
+//    }
+//
+//    public CompletableFuture<PaymentResponseDTO> fallback(
+//            PaymentRequestDTO request,
+//            Throwable ex
+//    ) {
+//        log.error("Payment fallback triggered: {}", ex.getMessage());
+//
+//        PaymentResponseDTO response = new PaymentResponseDTO();
+//        response.setStatus("FAILED");
+//
+//        return CompletableFuture.completedFuture(response);
+//    }
 }
