@@ -9,8 +9,10 @@ import com.scarlxrd.order_service.entity.OrderItem;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
+import java.util.List;
+
 @Mapper(componentModel = "spring")
-public interface  OrderMapper {
+public interface OrderMapper {
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
@@ -18,7 +20,11 @@ public interface  OrderMapper {
     Order toEntity(CreateOrderDTO dto);
 
     @Mapping(target = "status", expression = "java(order.getStatus().name())")
+    @Mapping(target = "totalAmount", source = "totalAmount")
+    @Mapping(target = "items", source = "items")
     OrderResponseDTO toResponse(Order order);
 
     OrderItemResponseDTO toItemResponse(OrderItem item);
+
+    List<OrderItemResponseDTO> toItemResponseList(List<OrderItem> items);
 }
