@@ -29,12 +29,16 @@ public class BookValidatedConsumer {
 
         log.info("Event received: {}",event);
 
-
         Order order = repository.findById(event.getOrderId())
                 .orElse(null);
 
         if (order == null) {
             log.warn("Order not found for id: {}", event.getOrderId());
+            return;
+        }
+
+        if(order.getStatus() != OrderStatus.CREATED ){
+            log.warn("Order already processed: {} ", order.getId());
             return;
         }
 
@@ -44,6 +48,11 @@ public class BookValidatedConsumer {
             return;
         }
 
+
+        if (event.getPrice() == null){
+            log.error("Price is null for event: {}", event);
+            return;
+        }
         OrderItem item = new OrderItem();
         item.setBookId(event.getBookId());
         item.setQuantity(event.getQuantity());
@@ -51,16 +60,27 @@ public class BookValidatedConsumer {
 
         order.addItem(item);
 
-        BigDecimal total = order.getItems().stream().filter(i -> i.getPrice() != null).map(i -> i.getPrice().multiply(BigDecimal.valueOf(i.getQuantity())))
+        BigDecimal total = order.getItems().stream()
+                .map(i -> i.getPrice().multiply(BigDecimal.valueOf(i.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        if(total.compareTo(BigDecimal.ZERO) <= 0){
+            log.warn("Invalid total for order: {}", order.getId());
+            return;
+        }
+
         order.setTotalAmount(total);
+        order.setStatus(OrderStatus.VALIDATED);
 
         repository.save(order);
+
+        log.info("Order {} validated with total {} ", order.getId(),total);
 
         PaymentRequestDTO payment = new PaymentRequestDTO();
         payment.setOrderId(order.getId());
         payment.setAmount(total);
+
+        log.info("Sending payment request: {}",payment);
 
         rabbitTemplate.convertAndSend(
                 "book.events",
