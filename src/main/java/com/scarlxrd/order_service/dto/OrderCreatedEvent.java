@@ -14,4 +14,5 @@ public class OrderCreatedEvent {
     private UUID orderId;
     private BigDecimal amount;
     private String customerEmail;
+    private String customerName;
 }

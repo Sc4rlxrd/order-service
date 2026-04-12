@@ -23,10 +23,11 @@ public class OrderService {
     private final OrderRepository repository;
     private final OrderMapper mapper;
     private final RabbitTemplate rabbitTemplate;
+    private final OrderPublisher orderPublisher;
 
 
     @Transactional
-    public OrderResponseDTO create(CreateOrderDTO dto) {
+    public OrderResponseDTO create(CreateOrderDTO dto, String email) {
 
         Order order = mapper.toEntity(dto);
         order.setClientId(dto.getClientId());
@@ -40,6 +41,12 @@ public class OrderService {
         }
 
         Order savedOrder = repository.save(order);
+
+        OrderCreatedEvent orderEvent = new OrderCreatedEvent();
+        orderEvent.setOrderId(savedOrder.getId());
+        orderEvent.setCustomerEmail(email);
+
+        orderPublisher.publishOrderCreated(orderEvent);
 
         dto.getItems().forEach(item -> {
 
