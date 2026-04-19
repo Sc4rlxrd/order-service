@@ -29,6 +29,23 @@ public class OrderService {
     @Transactional
     public OrderResponseDTO create(CreateOrderDTO dto, String email) {
 
+        if (dto.getClientId() == null) {
+            throw new BusinessException("ClientId is mandatory");
+        }
+
+        if (dto.getItems() == null || dto.getItems().isEmpty()) {
+            throw new BusinessException("The order must contain at least one item.");
+        }
+
+        dto.getItems().forEach(item -> {
+            if (item.getBookId() == null) {
+                throw new BusinessException("BookId is mandatory");
+            }
+            if (item.getQuantity() <= 0) {
+                throw new BusinessException("The quantity must be greater than zero.");
+            }
+        });
+
         Order order = mapper.toEntity(dto);
         order.setClientId(dto.getClientId());
         var total = BigDecimal.ZERO;
