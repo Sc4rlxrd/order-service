@@ -37,11 +37,10 @@ public class BookValidatedConsumer {
             return;
         }
 
-        if(order.getStatus() != OrderStatus.CREATED ){
+        if(order.getStatus() != OrderStatus.CREATED && order.getStatus() != OrderStatus.PENDING) {
             log.warn("Order already processed: {} ", order.getId());
             return;
         }
-
         if(!event.isAvailable()){
             order.setStatus(OrderStatus.CANCELLED);
             repository.save(order);
@@ -70,23 +69,34 @@ public class BookValidatedConsumer {
         }
 
         order.setTotalAmount(total);
-        order.setStatus(OrderStatus.VALIDATED);
+        boolean allItemsValidated = order.getItems().size() == order.getTotalItems();
 
-        repository.save(order);
+        if (allItemsValidated) {
+            order.setStatus(OrderStatus.VALIDATED);
+            repository.save(order);
 
-        log.info("Order {} validated with total {} ", order.getId(),total);
+            log.info("Order {} fully validated with total {}", order.getId(), total);
 
-        PaymentRequestDTO payment = new PaymentRequestDTO();
-        payment.setOrderId(order.getId());
-        payment.setAmount(total);
+            PaymentRequestDTO payment = new PaymentRequestDTO();
+            payment.setOrderId(order.getId());
+            payment.setAmount(total);
 
-        log.info("Sending payment request: {}",payment);
+            log.info("Sending payment request: {}", payment);
 
-        rabbitTemplate.convertAndSend(
-                "book.events",
-                "payment.process",
-                payment
-        );
+            rabbitTemplate.convertAndSend(
+                    "book.events",
+                    "payment.process",
+                    payment
+            );
+        } else {
+            repository.save(order);
+            log.info("Order {} partially validated {}/{} items",
+                    order.getId(),
+                    order.getItems().size(),
+                    order.getTotalItems()
+            );
+        }
+          log.info("Order {} fully validated with total {}", order.getId(), total);
 
     }
 }

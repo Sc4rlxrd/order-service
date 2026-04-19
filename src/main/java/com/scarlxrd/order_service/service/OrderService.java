@@ -42,6 +42,9 @@ public class OrderService {
 
         Order savedOrder = repository.save(order);
 
+        savedOrder.setTotalItems(dto.getItems().size());
+        repository.save(savedOrder);
+
         OrderCreatedEvent orderEvent = new OrderCreatedEvent();
         orderEvent.setOrderId(savedOrder.getId());
         orderEvent.setCustomerEmail(email);
