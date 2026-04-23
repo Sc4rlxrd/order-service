@@ -10,6 +10,7 @@ import com.scarlxrd.order_service.mapper.OrderMapper;
 import com.scarlxrd.order_service.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("Testes do OrderService")
 class OrderServiceTest {
 
     @Mock
@@ -79,247 +81,288 @@ class OrderServiceTest {
         responseDTO.setStatus("PENDING");
     }
 
-    @Test
-    @DisplayName("Deve criar order e retornar OrderResponseDTO")
-    void shouldCreateOrderAndReturnResponse() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-        when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+    @Nested
+    @DisplayName("Cenários de sucesso")
+    class SuccessTests {
 
-        OrderResponseDTO result = orderService.create(dto, EMAIL);
+        @Test
+        @DisplayName("Deve criar pedido e retornar resposta")
+        void shouldCreateOrderAndReturnResponse() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+            when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
 
-        assertThat(result).isNotNull();
-        assertThat(result.getId()).isEqualTo(order.getId());
-        assertThat(result.getClientId()).isEqualTo(dto.getClientId());
+            // When
+            OrderResponseDTO result = orderService.create(dto, EMAIL);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getId()).isEqualTo(order.getId());
+            assertThat(result.getClientId()).isEqualTo(dto.getClientId());
+        }
+
+        @Test
+        @DisplayName("Deve salvar pedido com status PENDING e valor zero")
+        void shouldSaveOrderWithPendingStatusAndZeroAmount() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+            when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+
+            // When
+            orderService.create(dto, EMAIL);
+
+            // Then
+            ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
+            verify(repository, atLeastOnce()).save(captor.capture());
+
+            Order saved = captor.getAllValues().getFirst();
+            assertThat(saved.getStatus()).isEqualTo(OrderStatus.PENDING);
+            assertThat(saved.getTotalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        }
+
+        @Test
+        @DisplayName("Deve definir totalItems corretamente")
+        void shouldSetTotalItemsFromDtoItemsSize() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+            when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+
+            // When
+            orderService.create(dto, EMAIL);
+
+            // Then
+            ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
+            verify(repository, times(2)).save(captor.capture());
+
+            Order saved = captor.getAllValues().get(1);
+            assertThat(saved.getTotalItems()).isEqualTo(dto.getItems().size());
+        }
+
+        @Test
+        @DisplayName("Deve publicar evento de criação do pedido")
+        void shouldPublishOrderCreatedEvent() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+            when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+
+            // When
+            orderService.create(dto, EMAIL);
+
+            // Then
+            ArgumentCaptor<OrderCreatedEvent> captor = ArgumentCaptor.forClass(OrderCreatedEvent.class);
+            verify(orderPublisher).publishOrderCreated(captor.capture());
+
+            OrderCreatedEvent event = captor.getValue();
+            assertThat(event.getOrderId()).isEqualTo(order.getId());
+            assertThat(event.getCustomerEmail()).isEqualTo(EMAIL);
+        }
+
+        @Test
+        @DisplayName("Deve enviar validação de livros para cada item")
+        void shouldSendBookValidationForEachItem() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+            when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+
+            // When
+            orderService.create(dto, EMAIL);
+
+            // Then
+            verify(rabbitTemplate, times(dto.getItems().size()))
+                    .convertAndSend(
+                            eq("book.events"),
+                            eq("book.validate"),
+                            any(BookValidationRequest.class));
+        }
+
+        @Test
+        @DisplayName("Deve enviar validação de livros com dados corretos")
+        void shouldSendBookValidationWithCorrectData() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+            when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+
+            // When
+            orderService.create(dto, EMAIL);
+
+            // Then
+            ArgumentCaptor<BookValidationRequest> captor = ArgumentCaptor.forClass(BookValidationRequest.class);
+
+            verify(rabbitTemplate, times(dto.getItems().size())).convertAndSend(
+                    eq("book.events"),
+                    eq("book.validate"),
+                    captor.capture());
+
+            List<BookValidationRequest> requests = captor.getAllValues();
+
+            assertThat(requests).allSatisfy(req -> assertThat(req.getOrderId()).isEqualTo(order.getId()));
+
+            assertThat(requests.get(0).getBookId()).isEqualTo(dto.getItems().get(0).getBookId());
+            assertThat(requests.get(0).getQuantity()).isEqualTo(dto.getItems().get(0).getQuantity());
+            assertThat(requests.get(1).getBookId()).isEqualTo(dto.getItems().get(1).getBookId());
+            assertThat(requests.get(1).getQuantity()).isEqualTo(dto.getItems().get(1).getQuantity());
+        }
+
+        @Test
+        @DisplayName("Deve salvar pedido exatamente duas vezes")
+        void shouldCallRepositorySaveTwice() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+            when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+
+            // When
+            orderService.create(dto, EMAIL);
+
+            // Then
+            verify(repository, times(2)).save(any(Order.class));
+        }
     }
 
-    @Test
-    @DisplayName("Deve salvar order com status PENDING e totalAmount zerado")
-    void shouldSaveOrderWithPendingStatusAndZeroAmount() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-        when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+    @Nested
+    @DisplayName("Cenários de erro de infraestrutura")
+    class ErrorTests {
 
-        orderService.create(dto, EMAIL);
+        @Test
+        @DisplayName("Deve lançar erro quando repository falhar")
+        void shouldThrowWhenRepositoryFails() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class)))
+                    .thenThrow(new RuntimeException("Banco indisponível"));
 
-        ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
-        verify(repository, atLeastOnce()).save(captor.capture());
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("Banco indisponível");
+        }
 
-        Order saved = captor.getAllValues().getFirst();
-        assertThat(saved.getStatus()).isEqualTo(OrderStatus.PENDING);
-        assertThat(saved.getTotalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        @Test
+        @DisplayName("Deve lançar erro quando RabbitMQ falhar")
+        void shouldThrowWhenRabbitFails() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+
+            doThrow(new RuntimeException("RabbitMQ indisponível"))
+                    .when(rabbitTemplate)
+                    .convertAndSend(anyString(), anyString(), Optional.ofNullable(any()));
+
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("RabbitMQ indisponível");
+        }
+
+        @Test
+        @DisplayName("Deve lançar erro quando publisher falhar")
+        void shouldThrowWhenPublisherFails() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(order);
+            when(repository.save(any(Order.class))).thenReturn(order);
+
+            doThrow(new RuntimeException("Publisher indisponível"))
+                    .when(orderPublisher)
+                    .publishOrderCreated(any());
+
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("Publisher indisponível");
+        }
+
+        @Test
+        @DisplayName("Deve lançar erro quando mapper retornar nulo")
+        void shouldThrowWhenMapperReturnsNull() {
+            // Given
+            when(mapper.toEntity(dto)).thenReturn(null);
+
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(NullPointerException.class);
+        }
     }
 
-    @Test
-    @DisplayName("Deve setar totalItems com o tamanho da lista de items do DTO")
-    void shouldSetTotalItemsFromDtoItemsSize() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-        when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
+    @Nested
+    @DisplayName("Validações de negócio")
+    class ValidationTests {
 
-        orderService.create(dto, EMAIL);
+        @Test
+        @DisplayName("Deve lançar exceção quando clientId for nulo")
+        void shouldThrowWhenClientIdIsNull() {
+            // Given
+            dto.setClientId(null);
 
-        // segundo save é onde seta o totalItems
-        ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
-        verify(repository, times(2)).save(captor.capture());
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("ClientId is mandatory");
+        }
 
-        Order savedWithTotalItems = captor.getAllValues().get(1);
-        assertThat(savedWithTotalItems.getTotalItems()).isEqualTo(dto.getItems().size());
+        @Test
+        @DisplayName("Deve lançar exceção quando lista de itens for nula")
+        void shouldThrowWhenItemsIsNull() {
+            // Given
+            dto.setItems(null);
+
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("The order must contain at least one item.");
+        }
+
+        @Test
+        @DisplayName("Deve lançar exceção quando lista de itens estiver vazia")
+        void shouldThrowWhenItemsIsEmpty() {
+            // Given
+            dto.setItems(List.of());
+
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("The order must contain at least one item.");
+        }
+
+        @Test
+        @DisplayName("Deve lançar exceção quando bookId for nulo")
+        void shouldThrowWhenBookIdIsNull() {
+            // Given
+            dto.getItems().getFirst().setBookId(null);
+
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("BookId is mandatory");
+        }
+
+        @Test
+        @DisplayName("Deve lançar exceção quando quantidade for zero")
+        void shouldThrowWhenQuantityIsZero() {
+            // Given
+            dto.getItems().getFirst().setQuantity(0);
+
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("The quantity must be greater than zero.");
+        }
+
+        @Test
+        @DisplayName("Deve lançar exceção quando quantidade for negativa")
+        void shouldThrowWhenQuantityIsNegative() {
+            // Given
+            dto.getItems().getFirst().setQuantity(-1);
+
+            // When / Then
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("The quantity must be greater than zero.");
+        }
     }
-
-
-    @Test
-    @DisplayName("Deve publicar OrderCreatedEvent com orderId e email corretos")
-    void shouldPublishOrderCreatedEventWithCorrectData() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-        when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
-
-        orderService.create(dto, EMAIL);
-
-        ArgumentCaptor<OrderCreatedEvent> captor = ArgumentCaptor.forClass(OrderCreatedEvent.class);
-        verify(orderPublisher).publishOrderCreated(captor.capture());
-
-        OrderCreatedEvent published = captor.getValue();
-        assertThat(published.getOrderId()).isEqualTo(order.getId());
-        assertThat(published.getCustomerEmail()).isEqualTo(EMAIL);
-    }
-
-
-    @Test
-    @DisplayName("Deve enviar BookValidationRequest para cada item do DTO")
-    void shouldSendBookValidationRequestForEachItem() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-        when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
-
-        orderService.create(dto, EMAIL);
-
-
-        verify(rabbitTemplate, times(dto.getItems().size()))
-                .convertAndSend(
-                        eq("book.events"),
-                        eq("book.validate"),
-                        any(BookValidationRequest.class)
-                );
-    }
-
-    @Test
-    @DisplayName("Deve enviar BookValidationRequest com dados corretos do item")
-    void shouldSendBookValidationRequestWithCorrectData() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-        when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
-
-        orderService.create(dto, EMAIL);
-
-        ArgumentCaptor<BookValidationRequest> captor =
-                ArgumentCaptor.forClass(BookValidationRequest.class);
-
-        verify(rabbitTemplate, times(2))
-                .convertAndSend(eq("book.events"), eq("book.validate"), captor.capture());
-
-        List<BookValidationRequest> requests = captor.getAllValues();
-
-        // verifica que cada request tem o orderId certo e os dados do ‘item’
-        assertThat(requests).allSatisfy(request ->
-                assertThat(request.getOrderId()).isEqualTo(order.getId())
-        );
-        assertThat(requests.get(0).getBookId()).isEqualTo(dto.getItems().get(0).getBookId());
-        assertThat(requests.get(0).getQuantity()).isEqualTo(dto.getItems().get(0).getQuantity());
-        assertThat(requests.get(1).getBookId()).isEqualTo(dto.getItems().get(1).getBookId());
-        assertThat(requests.get(1).getQuantity()).isEqualTo(dto.getItems().get(1).getQuantity());
-    }
-
-    @Test
-    @DisplayName("Deve chamar repository.save exatamente 2 vezes")
-    void shouldCallRepositorySaveTwice() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-        when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
-
-        orderService.create(dto, EMAIL);
-
-        verify(repository, times(2)).save(any(Order.class));
-    }
-
-    @Test
-    @DisplayName("Deve lançar exceção quando mapper retornar null")
-    void shouldThrowWhenMapperReturnsNull() {
-        when(mapper.toEntity(dto)).thenReturn(null);
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL)).isInstanceOf(NullPointerException.class);
-    }
-
-    @Test
-    @DisplayName("Deve lançar exceção quando repository.save falhar")
-    void shouldThrowWhenRepositoryFails() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class)))
-                .thenThrow(new RuntimeException("Banco indisponível"));
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL)).isInstanceOf(RuntimeException.class)
-                .hasMessage("Banco indisponível");
-    }
-
-    @Test
-    @DisplayName("Deve lançar exceção quando rabbitTemplate falhar ao enviar")
-    void shouldThrowWhenRabbitTemplateFails() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-
-        doThrow(new RuntimeException("RabbitMQ indisponível")).when(rabbitTemplate)
-                .convertAndSend(anyString(), anyString(), any(Object.class));
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL)).isInstanceOf(RuntimeException.class)
-                .hasMessage("RabbitMQ indisponível");
-    }
-
-    @Test
-    @DisplayName("Deve lançar exceção quando orderPublisher falhar")
-    void shouldThrowWhenPublisherFails() {
-        when(mapper.toEntity(dto)).thenReturn(order);
-        when(repository.save(any(Order.class))).thenReturn(order);
-
-        doThrow(new RuntimeException("Publisher indisponível")).when(orderPublisher)
-                .publishOrderCreated(any(OrderCreatedEvent.class));
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL)).isInstanceOf(RuntimeException.class)
-                .hasMessage("Publisher indisponível");
-    }
-
-    @Test
-    @DisplayName("Deve lançar BusinessException quando clientId for null")
-    void shouldThrowWhenClientIdIsNull() {
-        dto.setClientId(null);
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("ClientId is mandatory");
-
-        verify(repository, never()).save(any());
-        verify(orderPublisher, never()).publishOrderCreated(any());
-        verify(rabbitTemplate, never()).convertAndSend(anyString(), anyString(), Optional.ofNullable(any()));
-    }
-
-    @Test
-    @DisplayName("Deve lançar BusinessException quando lista de items for null")
-    void shouldThrowWhenItemsIsNull() {
-        dto.setItems(null);
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("The order must contain at least one item.");
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Deve lançar BusinessException quando lista de items for vazia")
-    void shouldThrowWhenItemsIsEmpty() {
-        dto.setItems(List.of());
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("The order must contain at least one item.");
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Deve lançar BusinessException quando bookId de algum item for null")
-    void shouldThrowWhenBookIdIsNull() {
-        dto.getItems().getFirst().setBookId(null);
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("BookId is mandatory");
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Deve lançar BusinessException quando quantity for zero")
-    void shouldThrowWhenQuantityIsZero() {
-        dto.getItems().getFirst().setQuantity(0);
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("The quantity must be greater than zero.");
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Deve lançar BusinessException quando quantity for negativo")
-    void shouldThrowWhenQuantityIsNegative() {
-        dto.getItems().getFirst().setQuantity(-1);
-
-        assertThatThrownBy(() -> orderService.create(dto, EMAIL))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("The quantity must be greater than zero.");
-
-        verify(repository, never()).save(any());
-    }
-
 }
