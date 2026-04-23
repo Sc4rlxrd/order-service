@@ -50,8 +50,18 @@ public class BookValidatedConsumer {
 
         if (event.getPrice() == null){
             log.error("Price is null for event: {}", event);
+            order.setStatus(OrderStatus.CANCELLED);
+            repository.save(order);
             return;
         }
+
+        boolean alreadyProcessed = order.getItems().stream().anyMatch(item -> item.getBookId().equals(event.getBookId()));
+
+        if (alreadyProcessed) {
+            log.warn("Duplicate event for bookId: {} ", event.getBookId());
+            return;
+        }
+
         OrderItem item = new OrderItem();
         item.setBookId(event.getBookId());
         item.setQuantity(event.getQuantity());

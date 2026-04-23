@@ -46,6 +46,7 @@ public class OrderService {
             }
         });
 
+
         Order order = mapper.toEntity(dto);
         order.setClientId(dto.getClientId());
         var total = BigDecimal.ZERO;
