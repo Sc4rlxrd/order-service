@@ -30,26 +30,30 @@ public class BookValidatedConsumer {
             containerFactory = "rabbitListenerContainerFactory"
     )
     @Transactional
-    public void handle(BookValidatedEvent event){
+    public void handle(BookValidatedEvent event) {
 
-        log.info("Event received: {}",event);
+
+        log.info("Event received: {}", event);
 
         Order order = repository.findById(event.getOrderId())
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + event.getOrderId()));
 
-        if(order.getStatus() != OrderStatus.CREATED && order.getStatus() != OrderStatus.PENDING) {
+        if (order.getStatus() != OrderStatus.CREATED && order.getStatus() != OrderStatus.PENDING) {
             log.warn("Order already processed: {} ", order.getId());
             return;
         }
-        if(!event.isAvailable()){
+        if (!event.isAvailable()) {
             order.setStatus(OrderStatus.CANCELLED);
             repository.save(order);
             return;
         }
 
+        if (event.getPrice() == null) {
+            log.error("Price is null for event: {}", event);
+            order.setStatus(OrderStatus.CANCELLED);
+            repository.save(order);
 
-        if (event.getPrice() == null){
-           throw new BusinessException("Price is null for bookId: " + event.getBookId());
+            return;
         }
 
         boolean alreadyProcessed = order.getItems().stream().anyMatch(item -> item.getBookId().equals(event.getBookId()));
@@ -70,7 +74,7 @@ public class BookValidatedConsumer {
                 .map(i -> i.getPrice().multiply(BigDecimal.valueOf(i.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        if(total.compareTo(BigDecimal.ZERO) <= 0){
+        if (total.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("Invalid total for order: " + order.getId());
         }
 
@@ -102,7 +106,9 @@ public class BookValidatedConsumer {
                     order.getTotalItems()
             );
         }
-          log.info("Order {} fully validated with total {}", order.getId(), total);
+        log.info("Order {} fully validated with total {}", order.getId(), total);
+
 
     }
+
 }
