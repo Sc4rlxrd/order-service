@@ -14,7 +14,10 @@ public class PaymentResultConsumer {
 
     private final OrderRepository repository;
 
-    @RabbitListener(queues = "payment.result.queue")
+    @RabbitListener(
+            queues = "payment.result.queue",
+            containerFactory = "rabbitListenerContainerFactory"
+    )
     public void handlePaymentResult(PaymentResultEvent event) {
 
         Order order = repository.findById(event.getOrderId())

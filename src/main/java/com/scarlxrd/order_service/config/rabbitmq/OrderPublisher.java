@@ -16,13 +16,18 @@ public class OrderPublisher {
     private static final String ROUTING_KEY = "order.created";
 
     public void publishOrderCreated(OrderCreatedEvent event) {
+        try {
+            log.info("Publishing order.created event for orderId={}", event.getOrderId());
 
-        log.info("Publishing order.created event for orderId={}", event.getOrderId());
+            rabbitTemplate.convertAndSend(
+                    EXCHANGE,
+                    ROUTING_KEY,
+                    event
+            );
 
-        rabbitTemplate.convertAndSend(
-                EXCHANGE,
-                ROUTING_KEY,
-                event
-        );
+        } catch (Exception e) {
+            log.error("Failed to publish order event {}", event.getOrderId(), e);
+            throw e;
+        }
     }
 }

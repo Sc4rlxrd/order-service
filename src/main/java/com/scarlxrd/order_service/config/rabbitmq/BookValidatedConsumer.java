@@ -5,6 +5,8 @@ import com.scarlxrd.order_service.dto.PaymentRequestDTO;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderItem;
 import com.scarlxrd.order_service.entity.OrderStatus;
+import com.scarlxrd.order_service.exception.BusinessException;
+import com.scarlxrd.order_service.exception.OrderNotFoundException;
 import com.scarlxrd.order_service.repository.OrderRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -23,19 +25,17 @@ public class BookValidatedConsumer {
     private final OrderRepository repository;
     private final RabbitTemplate rabbitTemplate;
 
-    @RabbitListener(queues = "book.validated.queue")
+    @RabbitListener(
+            queues = "book.validated.queue",
+            containerFactory = "rabbitListenerContainerFactory"
+    )
     @Transactional
     public void handle(BookValidatedEvent event){
 
         log.info("Event received: {}",event);
 
         Order order = repository.findById(event.getOrderId())
-                .orElse(null);
-
-        if (order == null) {
-            log.warn("Order not found for id: {}", event.getOrderId());
-            return;
-        }
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + event.getOrderId()));
 
         if(order.getStatus() != OrderStatus.CREATED && order.getStatus() != OrderStatus.PENDING) {
             log.warn("Order already processed: {} ", order.getId());
@@ -49,10 +49,7 @@ public class BookValidatedConsumer {
 
 
         if (event.getPrice() == null){
-            log.error("Price is null for event: {}", event);
-            order.setStatus(OrderStatus.CANCELLED);
-            repository.save(order);
-            return;
+           throw new BusinessException("Price is null for bookId: " + event.getBookId());
         }
 
         boolean alreadyProcessed = order.getItems().stream().anyMatch(item -> item.getBookId().equals(event.getBookId()));
@@ -74,8 +71,7 @@ public class BookValidatedConsumer {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         if(total.compareTo(BigDecimal.ZERO) <= 0){
-            log.warn("Invalid total for order: {}", order.getId());
-            return;
+            throw new BusinessException("Invalid total for order: " + order.getId());
         }
 
         order.setTotalAmount(total);
