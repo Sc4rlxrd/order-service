@@ -22,11 +22,16 @@ public class OrderPublisher {
             rabbitTemplate.convertAndSend(
                     EXCHANGE,
                     ROUTING_KEY,
-                    event
+                    event,
+                    message -> {
+                        message.getMessageProperties().setCorrelationId(event.getOrderId().toString());
+                        return message;
+                    }
+
             );
 
         } catch (Exception e) {
-            log.error("Failed to publish order event {}", event.getOrderId(), e);
+            log.warn("Failed to publish order event {}", event.getOrderId(), e);
             throw e;
         }
     }
