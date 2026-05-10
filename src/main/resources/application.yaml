@@ -5,6 +5,8 @@ server:
     include-binding-errors: always
 
 spring:
+  application:
+    name: order-service
   datasource:
     platform: postgres
     url: jdbc:postgresql://localhost:5434/orders
@@ -33,20 +35,20 @@ logging:
   level:
     org.springframework: DEBUG
 
-#resilience4j:
-#  retry:
-#    instances:
-#      paymentRetry:
-#        max-attempts: 3
-#        wait-duration: 2s
-#
-#  circuitbreaker:
-#    instances:
-#      paymentCircuit:
-#        sliding-window-size: 5
-#        failure-rate-threshold: 50
-#
-#  timelimiter:
-#    instances:
-#      paymentTimeout:
-#        timeout-duration: 2s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+tracing:
+  sampling:
+    probability: 1.0
+
