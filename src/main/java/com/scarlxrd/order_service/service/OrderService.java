@@ -9,15 +9,19 @@ import com.scarlxrd.order_service.exception.BusinessException;
 import com.scarlxrd.order_service.mapper.OrderMapper;
 import com.scarlxrd.order_service.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
 @RequiredArgsConstructor
 @Service
+@Slf4j
 public class OrderService {
 
     private final OrderRepository repository;
@@ -46,43 +50,67 @@ public class OrderService {
             }
         });
 
-
         Order order = mapper.toEntity(dto);
+
         order.setClientId(dto.getClientId());
-        var total = BigDecimal.ZERO;
-        order.setTotalAmount(total);
+        order.setTotalAmount(BigDecimal.ZERO);
         order.setStatus(OrderStatus.PENDING);
 
+        order.getItems().clear();
 
-        if (order.getItems() != null) {
-            order.getItems().forEach(item -> item.setOrder(order));
-        }
+        dto.getItems().forEach(dtoItem -> {
 
-        Order savedOrder = repository.save(order);
+            OrderItem item = new OrderItem();
 
-        savedOrder.setTotalItems(dto.getItems().size());
-        repository.save(savedOrder);
+            item.setBookId(dtoItem.getBookId());
+            item.setQuantity(dtoItem.getQuantity());
 
-        OrderCreatedEvent orderEvent = new OrderCreatedEvent();
-        orderEvent.setOrderId(savedOrder.getId());
-        orderEvent.setCustomerEmail(email);
+            item.setPrice(BigDecimal.ZERO);
 
-        orderPublisher.publishOrderCreated(orderEvent);
+            item.setValidated(false);
 
-        dto.getItems().forEach(item -> {
+            item.setOrder(order);
 
-            BookValidationRequest event = new BookValidationRequest(
-                    savedOrder.getId(),
-                    item.getBookId(),
-                    item.getQuantity()
-            );
-
-            rabbitTemplate.convertAndSend(
-                    "book.events",
-                    "book.validate",
-                    event
-            );
+            order.getItems().add(item);
         });
+
+        order.setTotalItems(order.getItems().size());
+
+        Order savedOrder = repository.saveAndFlush(order);
+
+        log.info(
+                "Order created {}",
+                savedOrder.getId()
+        );
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+
+                        OrderCreatedEvent orderEvent = new OrderCreatedEvent();
+                        orderEvent.setOrderId(savedOrder.getId());
+                        orderEvent.setCustomerEmail(email);
+
+                        orderPublisher.publishOrderCreated(orderEvent);
+
+                        dto.getItems().forEach(item -> {
+
+                            BookValidationRequest event =
+                                    new BookValidationRequest(
+                                            savedOrder.getId(),
+                                            item.getBookId(),
+                                            item.getQuantity()
+                                    );
+
+                            rabbitTemplate.convertAndSend(
+                                    "book.events",
+                                    "book.validate",
+                                    event
+                            );
+                        });
+                    }
+                }
+        );
 
         return mapper.toResponse(savedOrder);
     }
