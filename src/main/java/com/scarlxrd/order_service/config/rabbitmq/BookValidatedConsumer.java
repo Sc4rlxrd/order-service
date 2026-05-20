@@ -6,6 +6,7 @@ import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderItem;
 import com.scarlxrd.order_service.entity.OrderStatus;
 import com.scarlxrd.order_service.exception.BusinessException;
+import com.scarlxrd.order_service.exception.OrderItemNotFoundException;
 import com.scarlxrd.order_service.exception.OrderNotFoundException;
 import com.scarlxrd.order_service.repository.OrderRepository;
 import jakarta.transaction.Transactional;
@@ -32,83 +33,111 @@ public class BookValidatedConsumer {
     @Transactional
     public void handle(BookValidatedEvent event) {
 
+        log.info(
+                "Looking order {} from event {}",
+                event.getOrderId(),
+                event
+        );
 
-        log.info("Event received: {}", event);
+        Order order = repository.findByIdForUpdate(event.getOrderId())
+                .orElseThrow(() ->
+                        new OrderNotFoundException("Order not found: " + event.getOrderId())
+                );
 
-        Order order = repository.findById(event.getOrderId())
-                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + event.getOrderId()));
 
-        if (order.getStatus() != OrderStatus.CREATED && order.getStatus() != OrderStatus.PENDING) {
-            log.warn("Order already processed: {} ", order.getId());
+        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.VALIDATED) {
+            log.warn("Order already finalized {}", order.getId());
             return;
         }
+
         if (!event.isAvailable()) {
             order.setStatus(OrderStatus.CANCELLED);
+
+            log.warn(
+                    "Book {} unavailable. Cancelling order {}",
+                    event.getBookId(),
+                    order.getId()
+            );
+
             repository.save(order);
             return;
         }
 
         if (event.getPrice() == null) {
-            log.error("Price is null for event: {}", event);
+            log.error("Price null for event {}", event);
+
             order.setStatus(OrderStatus.CANCELLED);
+
             repository.save(order);
-
             return;
         }
 
-        boolean alreadyProcessed = order.getItems().stream().anyMatch(item -> item.getBookId().equals(event.getBookId()));
+        OrderItem item = order.getItems()
+                .stream()
+                .filter(i -> i.getBookId().equals(event.getBookId()))
+                .findFirst()
+                .orElseThrow(() ->
+                        new OrderItemNotFoundException(
+                                "Book not found: " + event.getBookId()
+                        )
+                );
 
-        if (alreadyProcessed) {
-            log.warn("Duplicate event for bookId: {} ", event.getBookId());
+
+        if (item.isValidated()) {
+            log.warn("Duplicate event book {} order {}", event.getBookId(), order.getId());
             return;
         }
 
-        OrderItem item = new OrderItem();
-        item.setBookId(event.getBookId());
-        item.setQuantity(event.getQuantity());
+        item.setValidated(true);
         item.setPrice(event.getPrice());
+        item.setQuantity(event.getQuantity());
 
-        order.addItem(item);
-
-        BigDecimal total = order.getItems().stream()
-                .map(i -> i.getPrice().multiply(BigDecimal.valueOf(i.getQuantity())))
+        BigDecimal total = order.getItems()
+                .stream()
+                .filter(OrderItem::isValidated) // só soma itens validados
+                .map(i -> i.getPrice()
+                        .multiply(BigDecimal.valueOf(i.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        if (total.compareTo(BigDecimal.ZERO) <= 0) {
+        if (total.compareTo(BigDecimal.ZERO) < 0) {
             throw new BusinessException("Invalid total for order: " + order.getId());
         }
 
         order.setTotalAmount(total);
-        boolean allItemsValidated = order.getItems().size() == order.getTotalItems();
+
+        boolean allItemsValidated = order.getItems()
+                .stream()
+                .allMatch(OrderItem::isValidated);
 
         if (allItemsValidated) {
             order.setStatus(OrderStatus.VALIDATED);
             repository.save(order);
 
-            log.info("Order {} fully validated with total {}", order.getId(), total);
+            log.info(
+                    "Order {} fully validated with total {}",
+                    order.getId(),
+                    total
+            );
 
             PaymentRequestDTO payment = new PaymentRequestDTO();
             payment.setOrderId(order.getId());
             payment.setAmount(total);
-
-            log.info("Sending payment request: {}", payment);
 
             rabbitTemplate.convertAndSend(
                     "book.events",
                     "payment.process",
                     payment
             );
+
         } else {
             repository.save(order);
-            log.info("Order {} partially validated {}/{} items",
-                    order.getId(),
-                    order.getItems().size(),
+            log.info(
+                    "Order {} partially validated {}/{} items", order.getId(), order.getItems()
+                            .stream()
+                            .filter(OrderItem::isValidated)
+                            .count(),
                     order.getTotalItems()
             );
         }
-        log.info("Order {} fully validated with total {}", order.getId(), total);
-
-
     }
-
 }
