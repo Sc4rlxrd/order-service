@@ -32,4 +32,7 @@ public class OrderItem {
     @JsonIgnore
     private Order order;
 
+    @Column(nullable = false)
+    private boolean validated = false;
+
 }
