@@ -24,7 +24,12 @@ public interface OrderMapper {
     @Mapping(target = "items", source = "items")
     OrderResponseDTO toResponse(Order order);
 
+    @Mapping(target = "bookId", source = "bookId")
+    @Mapping(target = "quantity", source = "quantity")
+    @Mapping(target = "price", source = "price")
     OrderItemResponseDTO toItemResponse(OrderItem item);
 
-    List<OrderItemResponseDTO> toItemResponseList(List<OrderItem> items);
+    default List<OrderItemResponseDTO> toItemResponseList(List<OrderItem> items) {
+        return items.stream().map(this::toItemResponse).toList();
+    }
 }
