@@ -1,0 +1,2 @@
+ALTER TABLE order_items
+    ADD COLUMN validated BOOLEAN NOT NULL DEFAULT FALSE;
