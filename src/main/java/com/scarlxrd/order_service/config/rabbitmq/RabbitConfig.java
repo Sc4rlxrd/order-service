@@ -35,8 +35,6 @@ public class RabbitConfig {
         factory.setMessageConverter(converter);
 
         factory.setDefaultRequeueRejected(false); // manda pra DLQ
-        factory.setConcurrentConsumers(2);
-        factory.setMaxConcurrentConsumers(5);
 
         return factory;
     }

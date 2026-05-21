@@ -99,17 +99,53 @@ public class BookValidatedConsumer {
                         .multiply(BigDecimal.valueOf(i.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        if (total.compareTo(BigDecimal.ZERO) < 0) {
+        if (total.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("Invalid total for order: " + order.getId());
         }
 
         order.setTotalAmount(total);
 
-        boolean allItemsValidated = order.getItems()
+        log.info(
+                "Order {} validation state: {}",
+                order.getId(),
+                order.getItems()
+                        .stream()
+                        .map(i -> String.format(
+                                "book=%s validated=%s qty=%d price=%s",
+                                i.getBookId(),
+                                i.isValidated(),
+                                i.getQuantity(),
+                                i.getPrice()
+                        ))
+                        .toList()
+        );
+
+        boolean allItemsValidated =
+                order.getItems()
+                        .stream()
+                        .filter(OrderItem::isValidated)
+                        .count()
+                        == order.getTotalItems();
+
+        long validatedCount = order.getItems()
                 .stream()
-                .allMatch(OrderItem::isValidated);
+                .filter(OrderItem::isValidated)
+                .count();
+
+        log.info("Validated items {}/{}", validatedCount, order.getTotalItems());
+
+        log.info(
+                "Order={} status={} validated={}/{}",
+                order.getId(),
+                order.getStatus(),
+                validatedCount,
+                order.getTotalItems()
+        );
 
         if (allItemsValidated) {
+
+            log.info("ENTERING PAYMENT FLOW order={}", order.getId());
+
             order.setStatus(OrderStatus.VALIDATED);
             repository.save(order);
 
@@ -122,6 +158,12 @@ public class BookValidatedConsumer {
             PaymentRequestDTO payment = new PaymentRequestDTO();
             payment.setOrderId(order.getId());
             payment.setAmount(total);
+
+            log.info(
+                    "Sending payment order={} total={}",
+                    order.getId(),
+                    total
+            );
 
             rabbitTemplate.convertAndSend(
                     "book.events",
