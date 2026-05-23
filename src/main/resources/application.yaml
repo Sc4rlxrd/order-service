@@ -1,8 +1,5 @@
 server:
   port: 8082
-  error:
-    include-message: always
-    include-binding-errors: always
 
 spring:
   application:
@@ -21,6 +18,12 @@ spring:
     port: 5672
     username: book_user
     password: book_password
+    listener:
+      type: simple
+      simple:
+        concurrency: 1
+        max-concurrency: 1
+        prefetch: 1
 
 flyway:
   enabled: true
@@ -30,11 +33,6 @@ jpa:
   hibernate:
     ddl-auto: validate
     deferred-datasource-initialization: true
-#
-#logging:
-#  level:
-#    org.springframework: DEBUG
-
 
 management:
   endpoints:
@@ -47,14 +45,16 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
-
-tracing:
-  sampling:
-    probability: 1.0
-
-zipkin:
   tracing:
-    endpoint: "http://localhost:9411/api/v2/spans"
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},traceId=%X{traceId:-},spanId=%X{spanId:-},orderId=%X{orderId:-}]"
 
 springdoc:
   api-docs:
