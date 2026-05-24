@@ -12,26 +12,39 @@ import org.springframework.stereotype.Component;
 public class OrderPublisher {
 
     private final RabbitTemplate rabbitTemplate;
-    private static final String  EXCHANGE = "book.events";
+
+    private static final String EXCHANGE = "book.events";
     private static final String ROUTING_KEY = "order.created";
 
     public void publishOrderCreated(OrderCreatedEvent event) {
         try {
-            log.info("Publishing order.created event for orderId={}", event.getOrderId());
+
+            log.info(
+                    "Publishing order.created event for orderId={}",
+                    event.getOrderId()
+            );
 
             rabbitTemplate.convertAndSend(
                     EXCHANGE,
                     ROUTING_KEY,
                     event,
                     message -> {
-                        message.getMessageProperties().setCorrelationId(event.getOrderId().toString());
+                        message.getMessageProperties()
+                                .setCorrelationId(
+                                        event.getOrderId().toString()
+                                );
+
                         return message;
                     }
-
             );
 
         } catch (Exception e) {
-            log.warn("Failed to publish order event {}", event.getOrderId(), e);
+            log.warn(
+                    "Failed to publish order event {}",
+                    event.getOrderId(),
+                    e
+            );
+
             throw e;
         }
     }
