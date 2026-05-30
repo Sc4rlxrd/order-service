@@ -1,15 +1,18 @@
 package com.scarlxrd.order_service.config.rabbitmq;
 
 import com.scarlxrd.order_service.dto.PaymentResultEvent;
+import com.scarlxrd.order_service.dto.StockDecreaseEvent;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderStatus;
-import com.scarlxrd.order_service.exception.BusinessException;
 import com.scarlxrd.order_service.exception.OrderNotFoundException;
 import com.scarlxrd.order_service.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
+
+import java.util.UUID;
 
 @RequiredArgsConstructor
 @Component
@@ -17,6 +20,7 @@ import org.springframework.stereotype.Component;
 public class PaymentResultConsumer {
 
     private final OrderRepository repository;
+    private final RabbitTemplate rabbitTemplate;
 
     @RabbitListener(
             queues = "payment.result.queue",
@@ -34,6 +38,25 @@ public class PaymentResultConsumer {
         }
         if ("SUCCESS".equals(event.getStatus())) {
             order.setStatus(OrderStatus.PAID);
+
+            order.getItems().forEach(item -> {
+
+                StockDecreaseEvent stockEvent =
+                        new StockDecreaseEvent(
+                                UUID.randomUUID(),
+                                order.getId(),
+                                item.getBookId(),
+                                item.getQuantity()
+                        );
+
+                rabbitTemplate.convertAndSend(
+                        "book.events",
+                        "stock.decrease",
+                        stockEvent
+                );
+
+                log.info("Publishing stock decrease event: {}", stockEvent);
+            });
         } else {
             order.setStatus(OrderStatus.CANCELLED);
         }
