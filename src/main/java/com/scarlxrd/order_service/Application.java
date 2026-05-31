@@ -2,10 +2,14 @@ package com.scarlxrd.order_service;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.web.config.EnableSpringDataWebSupport;
+
+import static org.springframework.data.web.config.EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO;
 
 @SpringBootApplication(exclude = {
 		io.github.resilience4j.springboot3.verifier.autoconfigure.SpringBoot3VerifierAutoConfiguration.class
 })
+@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)
 public class Application {
 
 	public static void main(String[] args) {

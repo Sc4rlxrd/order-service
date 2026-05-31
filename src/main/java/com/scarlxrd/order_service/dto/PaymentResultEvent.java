@@ -15,6 +15,7 @@ import java.util.UUID;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class PaymentResultEvent {
 
+    private UUID eventId;
     private UUID orderId;
     private String status;
     private BigDecimal amount;
