@@ -11,6 +11,8 @@ import com.scarlxrd.order_service.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -31,10 +33,10 @@ public class OrderService {
 
 
     @Transactional
-    public OrderResponseDTO create(CreateOrderDTO dto, String email) {
+    public OrderResponseDTO create(CreateOrderDTO dto, String email, String userId) {
 
-        if (dto.getClientId() == null) {
-            throw new BusinessException("ClientId is mandatory");
+        if (userId == null || userId.isBlank()) {
+            throw new BusinessException("Authenticated user not found");
         }
 
         if (dto.getItems() == null || dto.getItems().isEmpty()) {
@@ -52,7 +54,15 @@ public class OrderService {
 
         Order order = mapper.toEntity(dto);
 
-        order.setClientId(dto.getClientId());
+        UUID clientId;
+
+        try {
+            clientId = UUID.fromString(userId);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("Invalid authenticated user");
+        }
+
+        order.setClientId(clientId);
         order.setTotalAmount(BigDecimal.ZERO);
         order.setStatus(OrderStatus.PENDING);
 
@@ -113,5 +123,13 @@ public class OrderService {
         );
 
         return mapper.toResponse(savedOrder);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderResponseDTO> getMyOrders(String userId, Pageable pageable) {
+
+        UUID clientId = UUID.fromString(userId);
+
+        return repository.findByClientId(clientId, pageable).map(mapper::toResponse);
     }
 }

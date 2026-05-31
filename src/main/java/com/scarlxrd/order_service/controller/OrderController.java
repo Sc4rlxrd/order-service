@@ -4,6 +4,8 @@ import com.scarlxrd.order_service.dto.CreateOrderDTO;
 import com.scarlxrd.order_service.dto.OrderResponseDTO;
 import com.scarlxrd.order_service.service.OrderService;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +14,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/orders")
@@ -24,19 +28,52 @@ public class OrderController {
         this.service = service;
     }
 
+    @PostMapping
     @Operation(
             summary = "Criar pedido",
-            description = "Cria um novo pedido e inicia o fluxo de validação de livros e pagamento"
+            description = """
+                Cria um novo pedido para o usuário autenticado.
+                
+                O clientId é obtido automaticamente do JWT validado pelo Gateway.
+                """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Pedido criado com sucesso"),
-            @ApiResponse(responseCode = "400", description = "Dados inválidos ou itens ausentes"),
+            @ApiResponse(responseCode = "400", description = "Dados inválidos"),
+            @ApiResponse(responseCode = "401", description = "Não autenticado"),
             @ApiResponse(responseCode = "429", description = "Muitas requisições")
     })
-    @PostMapping
-    public ResponseEntity< OrderResponseDTO >create(@RequestBody @Valid CreateOrderDTO dto,
-                                                    @Parameter(description = "Email do usuário injetado pelo gateway", hidden = true)
-                                                    @RequestHeader(value = "X-User-Email", required = false) String email) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(service.create(dto, email));
+    public ResponseEntity<OrderResponseDTO> create(
+            @RequestBody @Valid CreateOrderDTO dto,
+
+            @Parameter(
+                    description = "Email do usuário autenticado",
+                    hidden = true
+            )
+            @RequestHeader(value = "X-User-Email", required = false)
+            String email,
+
+            @Parameter(
+                    description = "ID do usuário autenticado",
+                    hidden = true
+            )
+            @RequestHeader(value = "X-User-Id", required = false)
+            String userId
+    ) {
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(service.create(dto, email, userId));
+    }
+
+    @GetMapping("/me")
+    public Page<OrderResponseDTO> getMyOrders(
+
+            @Parameter(hidden = true)
+            @RequestHeader(value = "X-User-Id", required = false)
+            String userId,
+            Pageable pageable
+    ) {
+
+        return service.getMyOrders(userId,pageable);
     }
 }
