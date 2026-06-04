@@ -1,24 +1,26 @@
 package com.scarlxrd.order_service.service;
 
-import com.scarlxrd.order_service.config.rabbitmq.OrderPublisher;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.scarlxrd.order_service.dto.*;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderItem;
 import com.scarlxrd.order_service.entity.OrderStatus;
 import com.scarlxrd.order_service.exception.BusinessException;
 import com.scarlxrd.order_service.mapper.OrderMapper;
+import com.scarlxrd.order_service.outbox.OutboxEvent;
+import com.scarlxrd.order_service.outbox.OutboxRepository;
+import com.scarlxrd.order_service.outbox.OutboxStatus;
 import com.scarlxrd.order_service.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -28,9 +30,8 @@ public class OrderService {
 
     private final OrderRepository repository;
     private final OrderMapper mapper;
-    private final RabbitTemplate rabbitTemplate;
-    private final OrderPublisher orderPublisher;
-
+    private final OutboxRepository outboxRepository;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public OrderResponseDTO create(CreateOrderDTO dto, String email, String userId) {
@@ -58,7 +59,8 @@ public class OrderService {
 
         try {
             clientId = UUID.fromString(userId);
-        } catch (IllegalArgumentException e) {
+        } catch (
+                IllegalArgumentException e) {
             throw new BusinessException("Invalid authenticated user");
         }
 
@@ -92,38 +94,71 @@ public class OrderService {
                 "Order created {}",
                 savedOrder.getId()
         );
-        TransactionSynchronizationManager.registerSynchronization(
-                new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
 
-                        OrderCreatedEvent orderEvent = new OrderCreatedEvent();
-                        orderEvent.setOrderId(savedOrder.getId());
-                        orderEvent.setCustomerEmail(email);
+        saveOrderCreatedOutboxEvent(savedOrder, email);
 
-                        orderPublisher.publishOrderCreated(orderEvent);
-
-                        dto.getItems().forEach(item -> {
-
-                            BookValidationRequest event =
-                                    new BookValidationRequest(
-                                            savedOrder.getId(),
-                                            item.getBookId(),
-                                            item.getQuantity()
-                                    );
-
-                            rabbitTemplate.convertAndSend(
-                                    "book.events",
-                                    "book.validate",
-                                    event
-                            );
-                        });
-                    }
-                }
+        dto.getItems().forEach(item ->
+                saveBookValidationOutboxEvent(savedOrder, item)
         );
 
         return mapper.toResponse(savedOrder);
     }
+
+    private void saveOrderCreatedOutboxEvent(Order savedOrder, String email) {
+        try {
+            OrderCreatedEvent event = new OrderCreatedEvent();
+            event.setOrderId(savedOrder.getId());
+            event.setCustomerEmail(email);
+
+            String payload = objectMapper.writeValueAsString(event);
+
+            OutboxEvent outboxEvent = OutboxEvent.builder()
+                    .eventId(UUID.randomUUID())
+                    .aggregateId(savedOrder.getId())
+                    .aggregateType("ORDER")
+                    .eventType("ORDER_CREATED")
+                    .payload(payload)
+                    .status(OutboxStatus.PENDING)
+                    .retryCount(0)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            outboxRepository.save(outboxEvent);
+
+        } catch (
+                JsonProcessingException e) {
+            throw new BusinessException("Failed to create order created outbox event");
+        }
+    }
+
+    private void saveBookValidationOutboxEvent(Order savedOrder, OrderItemDTO item) {
+        try {
+            BookValidationRequest event = new BookValidationRequest(
+                    savedOrder.getId(),
+                    item.getBookId(),
+                    item.getQuantity()
+            );
+
+            String payload = objectMapper.writeValueAsString(event);
+
+            OutboxEvent outboxEvent = OutboxEvent.builder()
+                    .eventId(UUID.randomUUID())
+                    .aggregateId(savedOrder.getId())
+                    .aggregateType("ORDER")
+                    .eventType("BOOK_VALIDATE_REQUESTED")
+                    .payload(payload)
+                    .status(OutboxStatus.PENDING)
+                    .retryCount(0)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            outboxRepository.save(outboxEvent);
+
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("Failed to create book validation outbox event");
+        }
+    }
+
 
     @Transactional(readOnly = true)
     public Page<OrderResponseDTO> getMyOrders(String userId, Pageable pageable) {
