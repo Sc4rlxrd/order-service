@@ -3,19 +3,19 @@ package com.scarlxrd.order_service.controller;
 import com.scarlxrd.order_service.dto.CreateOrderDTO;
 import com.scarlxrd.order_service.dto.OrderResponseDTO;
 import com.scarlxrd.order_service.service.OrderService;
-import jakarta.validation.Valid;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-
-import java.util.List;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/orders")
@@ -71,6 +71,11 @@ public class OrderController {
             @Parameter(hidden = true)
             @RequestHeader(value = "X-User-Id", required = false)
             String userId,
+            @PageableDefault(
+                    size = 25,
+                    sort = "createdAt",
+                    direction = Sort.Direction.DESC
+            )
             Pageable pageable
     ) {
 
