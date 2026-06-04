@@ -1,11 +1,15 @@
 package com.scarlxrd.order_service.service;
 
-import com.scarlxrd.order_service.config.rabbitmq.OrderPublisher;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.scarlxrd.order_service.dto.*;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderStatus;
 import com.scarlxrd.order_service.exception.BusinessException;
 import com.scarlxrd.order_service.mapper.OrderMapper;
+import com.scarlxrd.order_service.outbox.OutboxEvent;
+import com.scarlxrd.order_service.outbox.OutboxRepository;
+import com.scarlxrd.order_service.outbox.OutboxStatus;
 import com.scarlxrd.order_service.repository.OrderRepository;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,9 +17,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -30,8 +31,8 @@ class OrderServiceTest {
 
     @Mock private OrderRepository repository;
     @Mock private OrderMapper mapper;
-    @Mock private RabbitTemplate rabbitTemplate;
-    @Mock private OrderPublisher orderPublisher;
+    @Mock private OutboxRepository outboxRepository;
+    @Mock private ObjectMapper objectMapper;
 
     @InjectMocks
     private OrderService orderService;
@@ -46,8 +47,6 @@ class OrderServiceTest {
 
     @BeforeEach
     void setUp() {
-        TransactionSynchronizationManager.initSynchronization();
-
         OrderItemDTO item1 = new OrderItemDTO();
         item1.setBookId(UUID.randomUUID());
         item1.setQuantity(2);
@@ -72,15 +71,9 @@ class OrderServiceTest {
         responseDTO.setStatus("PENDING");
     }
 
-    @AfterEach
-    void tearDown() {
-        TransactionSynchronizationManager.clearSynchronization();
-    }
-
-    private void executeAfterCommit() {
-        TransactionSynchronizationManager
-                .getSynchronizations()
-                .forEach(TransactionSynchronization::afterCommit);
+    private void mockObjectMapperSuccessfully() throws JsonProcessingException {
+        when(objectMapper.writeValueAsString(any()))
+                .thenReturn("{}");
     }
 
     @Nested
@@ -89,7 +82,9 @@ class OrderServiceTest {
 
         @Test
         @DisplayName("Deve criar pedido e retornar resposta")
-        void shouldCreateOrderAndReturnResponse() {
+        void shouldCreateOrderAndReturnResponse() throws JsonProcessingException {
+            mockObjectMapperSuccessfully();
+
             when(mapper.toEntity(dto)).thenReturn(order);
             when(repository.saveAndFlush(any(Order.class))).thenReturn(order);
             when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
@@ -103,7 +98,9 @@ class OrderServiceTest {
 
         @Test
         @DisplayName("Deve salvar pedido com status PENDING e valor zero")
-        void shouldSaveOrderWithPendingStatusAndZeroAmount() {
+        void shouldSaveOrderWithPendingStatusAndZeroAmount() throws JsonProcessingException {
+            mockObjectMapperSuccessfully();
+
             when(mapper.toEntity(dto)).thenReturn(order);
             when(repository.saveAndFlush(any(Order.class))).thenReturn(order);
             when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
@@ -122,7 +119,9 @@ class OrderServiceTest {
 
         @Test
         @DisplayName("Deve definir totalItems corretamente")
-        void shouldSetTotalItemsFromDtoItemsSize() {
+        void shouldSetTotalItemsFromDtoItemsSize() throws JsonProcessingException {
+            mockObjectMapperSuccessfully();
+
             when(mapper.toEntity(dto)).thenReturn(order);
             when(repository.saveAndFlush(any(Order.class))).thenReturn(order);
             when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
@@ -136,44 +135,73 @@ class OrderServiceTest {
         }
 
         @Test
-        @DisplayName("Deve publicar evento de criação do pedido")
-        void shouldPublishOrderCreatedEvent() {
+        @DisplayName("Deve salvar evento de criação do pedido na outbox")
+        void shouldSaveOrderCreatedOutboxEvent() throws JsonProcessingException {
+            mockObjectMapperSuccessfully();
+
             when(mapper.toEntity(dto)).thenReturn(order);
             when(repository.saveAndFlush(any(Order.class))).thenReturn(order);
             when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
 
             orderService.create(dto, EMAIL, USER_ID);
-            executeAfterCommit();
 
-            ArgumentCaptor<OrderCreatedEvent> captor = ArgumentCaptor.forClass(OrderCreatedEvent.class);
+            ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
 
-            verify(orderPublisher).publishOrderCreated(captor.capture());
+            verify(outboxRepository, times(3)).save(captor.capture());
 
-            assertThat(captor.getValue().getOrderId()).isEqualTo(order.getId());
-            assertThat(captor.getValue().getCustomerEmail()).isEqualTo(EMAIL);
+            OutboxEvent orderCreatedEvent = captor.getAllValues()
+                    .stream()
+                    .filter(event -> "ORDER_CREATED".equals(event.getEventType()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertThat(orderCreatedEvent.getAggregateId()).isEqualTo(order.getId());
+            assertThat(orderCreatedEvent.getAggregateType()).isEqualTo("ORDER");
+            assertThat(orderCreatedEvent.getEventType()).isEqualTo("ORDER_CREATED");
+            assertThat(orderCreatedEvent.getPayload()).isEqualTo("{}");
+            assertThat(orderCreatedEvent.getStatus()).isEqualTo(OutboxStatus.PENDING);
+            assertThat(orderCreatedEvent.getRetryCount()).isZero();
+            assertThat(orderCreatedEvent.getCreatedAt()).isNotNull();
         }
 
         @Test
-        @DisplayName("Deve enviar validação de livros para cada item")
-        void shouldSendBookValidationForEachItem() {
+        @DisplayName("Deve salvar validação de livros na outbox para cada item")
+        void shouldSaveBookValidationOutboxEventForEachItem() throws JsonProcessingException {
+            mockObjectMapperSuccessfully();
+
             when(mapper.toEntity(dto)).thenReturn(order);
             when(repository.saveAndFlush(any(Order.class))).thenReturn(order);
             when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
 
             orderService.create(dto, EMAIL, USER_ID);
-            executeAfterCommit();
 
-            verify(rabbitTemplate, times(dto.getItems().size()))
-                    .convertAndSend(
-                            eq("book.events"),
-                            eq("book.validate"),
-                            any(BookValidationRequest.class)
-                    );
+            ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+
+            verify(outboxRepository, times(3)).save(captor.capture());
+
+            List<OutboxEvent> bookValidationEvents = captor.getAllValues()
+                    .stream()
+                    .filter(event -> "BOOK_VALIDATE_REQUESTED".equals(event.getEventType()))
+                    .toList();
+
+            assertThat(bookValidationEvents).hasSize(dto.getItems().size());
+
+            bookValidationEvents.forEach(event -> {
+                assertThat(event.getAggregateId()).isEqualTo(order.getId());
+                assertThat(event.getAggregateType()).isEqualTo("ORDER");
+                assertThat(event.getEventType()).isEqualTo("BOOK_VALIDATE_REQUESTED");
+                assertThat(event.getPayload()).isEqualTo("{}");
+                assertThat(event.getStatus()).isEqualTo(OutboxStatus.PENDING);
+                assertThat(event.getRetryCount()).isZero();
+                assertThat(event.getCreatedAt()).isNotNull();
+            });
         }
 
         @Test
         @DisplayName("Deve salvar pedido exatamente uma vez")
-        void shouldCallRepositorySaveOnce() {
+        void shouldCallRepositorySaveOnce() throws JsonProcessingException {
+            mockObjectMapperSuccessfully();
+
             when(mapper.toEntity(dto)).thenReturn(order);
             when(repository.saveAndFlush(any(Order.class))).thenReturn(order);
             when(mapper.toResponse(any(Order.class))).thenReturn(responseDTO);
@@ -201,45 +229,34 @@ class OrderServiceTest {
         }
 
         @Test
-        @DisplayName("Deve lançar erro quando RabbitMQ falhar")
-        void shouldThrowWhenRabbitFails() {
+        @DisplayName("Deve lançar erro quando falhar ao criar evento de pedido na outbox")
+        void shouldThrowWhenOrderCreatedOutboxEventFails() throws JsonProcessingException {
             when(mapper.toEntity(dto)).thenReturn(order);
             when(repository.saveAndFlush(any(Order.class))).thenReturn(order);
-            when(mapper.toResponse(any())).thenReturn(responseDTO);
 
-            doThrow(new RuntimeException("RabbitMQ indisponível"))
-                    .when(rabbitTemplate)
-                    .convertAndSend(
-                            anyString(),
-                            anyString(),
-                            any(BookValidationRequest.class)
-                    );
+            when(objectMapper.writeValueAsString(any(OrderCreatedEvent.class)))
+                    .thenThrow(new JsonProcessingException("Erro ao serializar") {});
 
-            assertThatThrownBy(() -> {
-                orderService.create(dto, EMAIL, USER_ID);
-                executeAfterCommit();
-            })
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("RabbitMQ indisponível");
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL, USER_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("Failed to create order created outbox event");
         }
 
         @Test
-        @DisplayName("Deve lançar erro quando publisher falhar")
-        void shouldThrowWhenPublisherFails() {
+        @DisplayName("Deve lançar erro quando falhar ao criar evento de validação de livros na outbox")
+        void shouldThrowWhenBookValidationOutboxEventFails() throws JsonProcessingException {
             when(mapper.toEntity(dto)).thenReturn(order);
             when(repository.saveAndFlush(any(Order.class))).thenReturn(order);
-            when(mapper.toResponse(any())).thenReturn(responseDTO);
 
-            doThrow(new RuntimeException("Publisher indisponível"))
-                    .when(orderPublisher)
-                    .publishOrderCreated(any());
+            when(objectMapper.writeValueAsString(any(OrderCreatedEvent.class)))
+                    .thenReturn("{}");
 
-            assertThatThrownBy(() -> {
-                orderService.create(dto, EMAIL, USER_ID);
-                executeAfterCommit();
-            })
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("Publisher indisponível");
+            when(objectMapper.writeValueAsString(any(BookValidationRequest.class)))
+                    .thenThrow(new JsonProcessingException("Erro ao serializar") {});
+
+            assertThatThrownBy(() -> orderService.create(dto, EMAIL, USER_ID))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("Failed to create book validation outbox event");
         }
 
         @Test
