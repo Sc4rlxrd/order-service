@@ -1,5 +1,6 @@
 package com.scarlxrd.order_service.config.rabbitmq;
 
+import com.scarlxrd.order_service.config.metrics.RabbitEventMetrics;
 import com.scarlxrd.order_service.dto.OrderCreatedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
 public class OrderPublisher {
 
     private final RabbitTemplate rabbitTemplate;
+    private final RabbitEventMetrics rabbitMetrics;
 
     private static final String EXCHANGE = "book.events";
     private static final String ROUTING_KEY = "order.created";
@@ -37,8 +39,9 @@ public class OrderPublisher {
                         return message;
                     }
             );
-
+            rabbitMetrics.published("order_created");
         } catch (Exception e) {
+            rabbitMetrics.failed("order_created");
             log.warn(
                     "Failed to publish order event {}",
                     event.getOrderId(),

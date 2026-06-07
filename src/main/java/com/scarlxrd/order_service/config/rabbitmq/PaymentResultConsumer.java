@@ -1,5 +1,7 @@
 package com.scarlxrd.order_service.config.rabbitmq;
 
+import com.scarlxrd.order_service.config.metrics.OrderMetrics;
+import com.scarlxrd.order_service.config.metrics.RabbitEventMetrics;
 import com.scarlxrd.order_service.dto.PaymentResultEvent;
 import com.scarlxrd.order_service.dto.StockDecreaseEvent;
 import com.scarlxrd.order_service.entity.Order;
@@ -26,6 +28,8 @@ public class PaymentResultConsumer {
     private final OrderRepository repository;
     private final RabbitTemplate rabbitTemplate;
     private final ProcessedEventRepository processedEvent;
+    private final RabbitEventMetrics rabbitMetrics;
+    private final OrderMetrics orderMetrics;
 
     @RabbitListener(
             queues = "payment.result.queue",
@@ -33,6 +37,8 @@ public class PaymentResultConsumer {
     )
     @Transactional
     public void handlePaymentResult(PaymentResultEvent event) {
+
+        rabbitMetrics.consumed("payment_result");
 
         log.warn(
                 "PAYMENT RESULT RECEIVED order={} status={}",
@@ -46,10 +52,13 @@ public class PaymentResultConsumer {
         if (event.getStatus() == null) {
             log.warn("Invalid payment event: status is null, orderId={}", event.getOrderId());
             order.setStatus(OrderStatus.CANCELLED);
+            orderMetrics.cancelled("invalid_payment_event");
+            repository.save(order);
             return;
         }
 
         if (event.getEventId() == null) {
+            rabbitMetrics.failed("payment_result");
             throw new IllegalStateException(
                     "Payment event received without eventId"
             );
@@ -58,6 +67,7 @@ public class PaymentResultConsumer {
         String eventId = event.getEventId().toString();
 
         if (isDuplicate(eventId)) {
+            rabbitMetrics.duplicated("payment_result");
             log.warn("Duplicate payment event {}", eventId);
             return;
         }
@@ -65,6 +75,7 @@ public class PaymentResultConsumer {
         if ("SUCCESS".equals(event.getStatus())) {
 
             if (order.getStatus() == OrderStatus.PAID) {
+                rabbitMetrics.duplicated("payment_result");
                 log.warn(
                         "Payment already processed for order {}",
                         order.getId()
@@ -73,6 +84,7 @@ public class PaymentResultConsumer {
             }
 
             order.setStatus(OrderStatus.PAID);
+            orderMetrics.paid();
 
             order.getItems().forEach(item -> {
 
@@ -89,11 +101,12 @@ public class PaymentResultConsumer {
                         "stock.decrease",
                         stockEvent
                 );
-
+                rabbitMetrics.published("stock_decrease");
                 log.info("Publishing stock decrease event: {}", stockEvent);
             });
         } else {
             order.setStatus(OrderStatus.CANCELLED);
+            orderMetrics.cancelled("payment_failed");
         }
 
         repository.save(order);

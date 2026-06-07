@@ -1,5 +1,7 @@
 package com.scarlxrd.order_service.config.rabbitmq;
 
+import com.scarlxrd.order_service.config.metrics.OrderMetrics;
+import com.scarlxrd.order_service.config.metrics.RabbitEventMetrics;
 import com.scarlxrd.order_service.dto.BookValidatedEvent;
 import com.scarlxrd.order_service.dto.PaymentRequestDTO;
 import com.scarlxrd.order_service.entity.Order;
@@ -25,6 +27,8 @@ public class BookValidatedConsumer {
 
     private final OrderRepository repository;
     private final RabbitTemplate rabbitTemplate;
+    private final RabbitEventMetrics rabbitMetrics;
+    private final OrderMetrics orderMetrics;
 
     @RabbitListener(
             queues = "book.validated.queue",
@@ -32,6 +36,8 @@ public class BookValidatedConsumer {
     )
     @Transactional
     public void handle(BookValidatedEvent event) {
+
+        rabbitMetrics.consumed("book_validated");
 
         log.info(
                 "Looking order {} from event {}",
@@ -46,11 +52,13 @@ public class BookValidatedConsumer {
 
 
         if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.VALIDATED) {
+            rabbitMetrics.duplicated("book_validated");
             log.warn("Order already finalized {}", order.getId());
             return;
         }
 
         if (!event.isAvailable()) {
+            orderMetrics.cancelled("book_unavailable");
             order.setStatus(OrderStatus.CANCELLED);
 
             log.warn(
@@ -68,6 +76,8 @@ public class BookValidatedConsumer {
 
             order.setStatus(OrderStatus.CANCELLED);
 
+            orderMetrics.cancelled("price_null");
+
             repository.save(order);
             return;
         }
@@ -84,6 +94,7 @@ public class BookValidatedConsumer {
 
 
         if (item.isValidated()) {
+            rabbitMetrics.duplicated("book_validated");
             log.warn("Duplicate event book {} order {}", event.getBookId(), order.getId());
             return;
         }
@@ -155,6 +166,8 @@ public class BookValidatedConsumer {
                     total
             );
 
+            orderMetrics.validated();
+
             PaymentRequestDTO payment = new PaymentRequestDTO();
             payment.setOrderId(order.getId());
             payment.setAmount(total);
@@ -170,6 +183,8 @@ public class BookValidatedConsumer {
                     "payment.process",
                     payment
             );
+
+            rabbitMetrics.published("payment_process");
 
         } else {
             repository.save(order);

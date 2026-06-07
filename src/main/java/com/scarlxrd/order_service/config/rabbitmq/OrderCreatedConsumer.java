@@ -1,6 +1,7 @@
 package com.scarlxrd.order_service.config.rabbitmq;
 
 
+import com.scarlxrd.order_service.config.metrics.RabbitEventMetrics;
 import com.scarlxrd.order_service.dto.OrderCreatedEvent;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.repository.OrderRepository;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component;
 public class OrderCreatedConsumer {
 
     private final OrderRepository repository;
+    private final RabbitEventMetrics rabbitMetrics;
 
     @RabbitListener(
             queues = "order.created.queue",
@@ -23,6 +25,8 @@ public class OrderCreatedConsumer {
     )
     @Transactional
     public void handle(OrderCreatedEvent event) {
+
+        rabbitMetrics.consumed("order_created");
 
         log.info(
                 "Received order.created {}",
