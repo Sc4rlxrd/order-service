@@ -2,6 +2,7 @@ package com.scarlxrd.order_service.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.scarlxrd.order_service.config.metrics.OutboxMetrics;
 import com.scarlxrd.order_service.dto.*;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderItem;
@@ -32,6 +33,7 @@ public class OrderService {
     private final OrderMapper mapper;
     private final OutboxRepository outboxRepository;
     private final ObjectMapper objectMapper;
+    private final OutboxMetrics outboxMetrics;
 
     @Transactional
     public OrderResponseDTO create(CreateOrderDTO dto, String email, String userId) {
@@ -124,9 +126,10 @@ public class OrderService {
                     .build();
 
             outboxRepository.save(outboxEvent);
+            outboxMetrics.created();
 
-        } catch (
-                JsonProcessingException e) {
+        } catch (JsonProcessingException e) {
+            outboxMetrics.failed();
             throw new BusinessException("Failed to create order created outbox event");
         }
     }
@@ -153,8 +156,10 @@ public class OrderService {
                     .build();
 
             outboxRepository.save(outboxEvent);
+            outboxMetrics.created();
 
         } catch (JsonProcessingException e) {
+            outboxMetrics.failed();
             throw new BusinessException("Failed to create book validation outbox event");
         }
     }

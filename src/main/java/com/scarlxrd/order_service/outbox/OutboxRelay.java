@@ -1,6 +1,7 @@
 package com.scarlxrd.order_service.outbox;
 
 
+import com.scarlxrd.order_service.config.metrics.OutboxMetrics;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ public class OutboxRelay {
 
     private final OutboxRepository outboxRepository;
     private final EventPublisher eventPublisher;
+    private final OutboxMetrics outboxMetrics;
 
     @Scheduled(fixedDelay = 5000)
     @Transactional
@@ -30,11 +32,14 @@ public class OutboxRelay {
 
                 event.markAsProcessed();
 
+                outboxMetrics.published();
+
                 log.info("Outbox event published successfully. eventId={}, eventType={}",
                         event.getEventId(), event.getEventType());
 
             } catch (Exception ex) {
                 event.markAsFailed(ex.getMessage());
+                outboxMetrics.failed();
 
                 log.error("Failed to publish outbox event. eventId={}, eventType={}",
                         event.getEventId(), event.getEventType(), ex);
