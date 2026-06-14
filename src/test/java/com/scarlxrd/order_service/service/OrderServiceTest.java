@@ -2,6 +2,7 @@ package com.scarlxrd.order_service.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.scarlxrd.order_service.config.metrics.OutboxMetrics;
 import com.scarlxrd.order_service.dto.*;
 import com.scarlxrd.order_service.entity.Order;
 import com.scarlxrd.order_service.entity.OrderStatus;
@@ -33,6 +34,7 @@ class OrderServiceTest {
     @Mock private OrderMapper mapper;
     @Mock private OutboxRepository outboxRepository;
     @Mock private ObjectMapper objectMapper;
+    @Mock private OutboxMetrics outboxMetrics;
 
     @InjectMocks
     private OrderService orderService;
