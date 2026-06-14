@@ -22,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -37,6 +39,8 @@ public class OrderService {
 
     @Transactional
     public OrderResponseDTO create(CreateOrderDTO dto, String email, String userId) {
+
+        UUID clientId;
 
         if (userId == null || userId.isBlank()) {
             throw new BusinessException("Authenticated user not found");
@@ -55,16 +59,16 @@ public class OrderService {
             }
         });
 
-        Order order = mapper.toEntity(dto);
-
-        UUID clientId;
-
         try {
             clientId = UUID.fromString(userId);
-        } catch (
-                IllegalArgumentException e) {
+        } catch (IllegalArgumentException e) {
             throw new BusinessException("Invalid authenticated user");
         }
+
+       validateDuplicatedBooks(dto);
+
+        Order order = mapper.toEntity(dto);
+
 
         order.setClientId(clientId);
         order.setTotalAmount(BigDecimal.ZERO);
@@ -87,7 +91,6 @@ public class OrderService {
 
             order.getItems().add(item);
         });
-
         order.setTotalItems(order.getItems().size());
 
         Order savedOrder = repository.saveAndFlush(order);
@@ -161,6 +164,18 @@ public class OrderService {
         } catch (JsonProcessingException e) {
             outboxMetrics.failed();
             throw new BusinessException("Failed to create book validation outbox event");
+        }
+    }
+
+    private void validateDuplicatedBooks(CreateOrderDTO dto) {
+        Set<UUID> bookIds = new HashSet<>();
+
+        for (OrderItemDTO item : dto.getItems()) {
+            if (!bookIds.add(item.getBookId())) {
+                throw new BusinessException(
+                        "Duplicate book in order: " + item.getBookId()
+                );
+            }
         }
     }
 

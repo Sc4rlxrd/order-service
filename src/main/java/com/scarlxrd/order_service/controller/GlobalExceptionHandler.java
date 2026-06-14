@@ -1,5 +1,6 @@
 package com.scarlxrd.order_service.controller;
 
+import com.scarlxrd.order_service.exception.BusinessException;
 import com.scarlxrd.order_service.exception.RateLimitException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -45,6 +46,14 @@ public class GlobalExceptionHandler {
         problem.setTitle("Too Many Requests");
         problem.setDetail(ex.getMessage());
         problem.setProperty("timestamp", ZonedDateTime.now(ZoneId.systemDefault()));
+        return problem;
+    }
+
+    @ExceptionHandler(BusinessException.class)
+    public ProblemDetail handleBusinessException(BusinessException ex) {
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        problem.setTitle("Business rule violation");
+        problem.setDetail(ex.getMessage());
         return problem;
     }
 
