@@ -7,9 +7,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 import static org.springframework.data.web.config.EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO;
 
-@SpringBootApplication(exclude = {
-		io.github.resilience4j.springboot3.verifier.autoconfigure.SpringBoot3VerifierAutoConfiguration.class
-})
+@SpringBootApplication
 @EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)
 @EnableScheduling
 public class Application {
