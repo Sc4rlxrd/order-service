@@ -5,6 +5,7 @@ import com.scarlxrd.order_service.config.metrics.OutboxMetrics;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -18,12 +19,18 @@ public class OutboxRelay {
     private final OutboxRepository outboxRepository;
     private final EventPublisher eventPublisher;
     private final OutboxMetrics outboxMetrics;
+    private static final int MAX_RETRIES = 5;
+    private static final int BATCH_SIZE = 50;
 
     @Scheduled(fixedDelay = 5000)
     @Transactional
     public void processOutbox() {
-        List<OutboxEvent> events = outboxRepository.findTop50ByStatusOrderByCreatedAtAsc(OutboxStatus.PENDING);
-
+        List<OutboxEvent> events =
+                outboxRepository.findPendingOrFailedForUpdate(
+                        List.of(OutboxStatus.PENDING, OutboxStatus.FAILED),
+                        MAX_RETRIES,
+                        PageRequest.of(0, BATCH_SIZE)
+                );
         for (OutboxEvent event : events) {
             try {
                 event.markAsProcessing();
