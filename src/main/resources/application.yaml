@@ -4,20 +4,15 @@ server:
 spring:
   application:
     name: order-service
-  datasource:
-    platform: postgres
-    url: jdbc:postgresql://localhost:5434/orders
-    username: postgres
-    password: root
-    driver-class-name: org.postgresql.Driver
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
   threads:
     virtual:
       enabled: true
+
   rabbitmq:
-    host: localhost
-    port: 5672
-    username: book_user
-    password: book_password
     listener:
       type: simple
       simple:
@@ -25,40 +20,42 @@ spring:
         max-concurrency: 1
         prefetch: 1
 
-flyway:
-  enabled: true
-  baseline-on-migrate: true
-  locations: classpath:db/migration
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
 
-jpa:
-  hibernate:
-    ddl-auto: validate
-    deferred-datasource-initialization: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+      deferred-datasource-initialization: true
 
 management:
   endpoints:
     web:
       exposure:
         include: health, info, prometheus, metrics
+
   endpoint:
     health:
       show-details: always
+
   metrics:
     tags:
       application: ${spring.application.name}
+
   tracing:
     sampling:
       probability: 1.0
-  zipkin:
-    tracing:
-      endpoint: http://localhost:9411/api/v2/spans
 
 logging:
   level:
     org.flywaydb: DEBUG
+
   pattern:
     level: "%5p [${spring.application.name:},traceId=%X{traceId:-},spanId=%X{spanId:-},orderId=%X{orderId:-}]"
 
 springdoc:
   api-docs:
     path: /v3/api-docs
+

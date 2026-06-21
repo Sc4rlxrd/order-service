@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    platform: postgres
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+    hikari:
+      pool-name: ${DB_POOL_NAME:OrderService-HikariPool}
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:30000}
+      validation-timeout: ${DB_VALIDATION_TIMEOUT:5000}
+      idle-timeout: ${DB_IDLE_TIMEOUT:600000}
+      max-lifetime: ${DB_MAX_LIFETIME:1800000}
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
+    connection-timeout: ${RABBITMQ_CONNECTION_TIMEOUT:10s}
+
+management:
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT}
+
